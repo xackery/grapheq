@@ -1,3 +1,7 @@
+#No Databases should be versioned
+*.db
+eqemu_config.xml
+
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
 *.a
