@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	addr              = flag.String("listen-address", ":8080", "The address to listen on for HTTP requests.")
+	addr              = flag.String("listen-address", ":8081", "The address to listen on for HTTP requests.")
 	uniformDomain     = flag.Float64("uniform.domain", 0.0002, "The domain for the uniform distribution.")
 	normDomain        = flag.Float64("normal.domain", 0.0002, "The domain for the normal distribution.")
 	normMean          = flag.Float64("normal.mean", 0.00001, "The mean for the normal distribution.")
@@ -118,14 +118,14 @@ func main() {
 		for {
 			rows, err := db.Queryx(onlineQuery)
 			if err != nil {
-				log.Println("Error onlineQuery:", err.Error)
+				log.Println("Error onlineQuery:", err)
 				time.Sleep(60 * time.Second)
 				continue
 			}
 			for rows.Next() {
 				err = rows.Scan(&count)
 				if err != nil {
-					log.Println("Error onlineQuery:", err.Error)
+					log.Println("Error onlineQueryscan:", err)
 					time.Sleep(60 * time.Second)
 					continue
 				}
@@ -142,14 +142,14 @@ func main() {
 		for {
 			rows, err := db.Queryx(expQuery)
 			if err != nil {
-				log.Println("Error expQuery:", err.Error)
+				log.Println("Error expQuery:", err)
 				time.Sleep(60 * time.Second)
 				continue
 			}
 			for rows.Next() {
 				err = rows.Scan(&expTotal)
 				if err != nil {
-					log.Println("Error expQueryScan:", err.Error)
+					log.Println("Error expQueryScan:", err)
 					time.Sleep(60 * time.Second)
 					continue
 				}
@@ -193,7 +193,7 @@ WHERE a.status < 150 `
 			totalCurrency := &currencyRecord{}
 			rows, err := db.Queryx(currencyQuery)
 			if err != nil {
-				log.Println("Error currencyQuery:", err.Error)
+				log.Println("Error currencyQuery:", err)
 				time.Sleep(60 * time.Second)
 				continue
 			}
