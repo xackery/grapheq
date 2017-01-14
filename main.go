@@ -4,15 +4,19 @@
 package main
 
 import (
+	//"database/sql"
 	"flag"
+	"fmt"
 	"log"
-	"math"
-	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/xackery/eqemuconfig"
 )
 
 var (
@@ -24,66 +28,70 @@ var (
 )
 
 var (
-	// Create a summary to track fictional interservice RPC latencies for three
-	// distinct services with different latency distributions. These services are
-	// differentiated via a "service" label.
-	rpcDurations = prometheus.NewSummaryVec(
+	// Create a summary to track players online.
+	onlineCount = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
-			Name:       "rpc_durations_seconds",
-			Help:       "RPC latency distributions.",
+			Name:       "online_count_minutes",
+			Help:       "Online Count, every 60 seconds.",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
 		[]string{"service"},
 	)
-	// The same as above, but now as a histogram, and only for the normal
-	// distribution. The buckets are targeted to the parameters of the
-	// normal distribution, with 20 buckets centered on the mean, each
-	// half-sigma wide.
-	rpcDurationsHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "rpc_durations_histogram_seconds",
-		Help:    "RPC latency distributions.",
-		Buckets: prometheus.LinearBuckets(*normMean-5**normDomain, .5**normDomain, 20),
-	})
 )
 
 func init() {
-	// Register the summary and the histogram with Prometheus's default registry.
-	prometheus.MustRegister(rpcDurations)
-	prometheus.MustRegister(rpcDurationsHistogram)
+	// Register the with Prometheus's default registry.
+	prometheus.MustRegister(onlineCount)
 }
 
 func main() {
+
+	option := ""
+	config, err := eqemuconfig.GetConfig()
+	if err != nil {
+		log.Println("Error while loading eqemu_config.xml to start:", err.Error())
+		fmt.Println("press a key then enter to exit.")
+
+		fmt.Scan(&option)
+		os.Exit(1)
+	}
+
+	db, err := sqlx.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8&parseTime=true", config.Database.Username, config.Database.Password, config.Database.Host, config.Database.Port, config.Database.Db))
+	if err != nil {
+		log.Println("Error while connecting to db:", err.Error())
+		fmt.Println("press a key then enter to exit.")
+
+		fmt.Scan(&option)
+		os.Exit(1)
+		return
+	}
+	defer db.Close()
+
 	flag.Parse()
 
-	start := time.Now()
-
-	oscillationFactor := func() float64 {
-		return 2 + math.Sin(math.Sin(2*math.Pi*float64(time.Since(start))/float64(*oscillationPeriod)))
-	}
+	//start := time.Now()
 
 	// Periodically record some sample latencies for the three services.
 	go func() {
+		onlineQuery := "select count(last_login) from character_data where last_login >= UNIX_TIMESTAMP(now()-600) LIMIT 1"
+		count := float64(0)
 		for {
-			v := rand.Float64() * *uniformDomain
-			rpcDurations.WithLabelValues("uniform").Observe(v)
-			time.Sleep(time.Duration(100*oscillationFactor()) * time.Millisecond)
-		}
-	}()
-
-	go func() {
-		for {
-			v := (rand.NormFloat64() * *normDomain) + *normMean
-			rpcDurations.WithLabelValues("normal").Observe(v)
-			rpcDurationsHistogram.Observe(v)
-			time.Sleep(time.Duration(75*oscillationFactor()) * time.Millisecond)
-		}
-	}()
-
-	go func() {
-		for {
-			v := rand.ExpFloat64() / 1e6
-			rpcDurations.WithLabelValues("exponential").Observe(v)
-			time.Sleep(time.Duration(50*oscillationFactor()) * time.Millisecond)
+			rows, err := db.Queryx(onlineQuery)
+			if err != nil {
+				log.Println("Error onlineQuery:", err.Error)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+			for rows.Next() {
+				err = rows.Scan(&count)
+				if err != nil {
+					log.Println("Error onlineQuery:", err.Error)
+					time.Sleep(60 * time.Second)
+					continue
+				}
+			}
+			onlineCount.WithLabelValues("normal").Observe(count)
+			time.Sleep(60 * time.Second)
 		}
 	}()
 
