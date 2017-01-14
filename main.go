@@ -37,11 +37,41 @@ var (
 		},
 		[]string{"service"},
 	)
+
+	currencyCount = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "currency_count_minutes",
+			Help:       "Currency Count, every 60 seconds.",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"service"},
+	)
+
+	radiantCount = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "radiant_count_minutes",
+			Help:       "Radiant Crystal Count, every 60 seconds.",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"service"},
+	)
+
+	ebonCount = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "ebon_count_minutes",
+			Help:       "Ebon Crystal Count, every 60 seconds.",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"service"},
+	)
 )
 
 func init() {
 	// Register the with Prometheus's default registry.
 	prometheus.MustRegister(onlineCount)
+	prometheus.MustRegister(currencyCount)
+	prometheus.MustRegister(radiantCount)
+	prometheus.MustRegister(ebonCount)
 }
 
 func main() {
@@ -71,7 +101,7 @@ func main() {
 
 	//start := time.Now()
 
-	// Periodically record some sample latencies for the three services.
+	// ONLINE
 	go func() {
 		onlineQuery := "select count(last_login) from character_data where last_login >= UNIX_TIMESTAMP(now()-600) LIMIT 1"
 		count := float64(0)
@@ -91,6 +121,90 @@ func main() {
 				}
 			}
 			onlineCount.WithLabelValues("normal").Observe(count)
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	// CURRENCY
+	go func() {
+		currencyQuery := `SELECT a.sharedplat, cc.* FROM character_data cd 
+INNER JOIN account a ON a.id = cd.account_id  
+INNER JOIN character_currency cc ON cc.id = cd.id
+WHERE a.status < 150 `
+		type currencyRecord struct {
+			Id                      int `db:"id"`
+			Sharedplat              int `db:"sharedplat"`
+			Platinum                int `db:"platinum"`
+			Gold                    int `db:"gold"`
+			Silver                  int `db:"silver"`
+			Copper                  int `db:"copper"`
+			Platinum_bank           int `db:"platinum_bank"`
+			Gold_bank               int `db:"gold_bank"`
+			Silver_bank             int `db:"silver_bank"`
+			Copper_bank             int `db:"copper_bank"`
+			Platinum_cursor         int `db:"platinum_cursor"`
+			Gold_cursor             int `db:"gold_cursor"`
+			Silver_cursor           int `db:"silver_cursor"`
+			Copper_cursor           int `db:"copper_cursor"`
+			Radiant_crystals        int `db:"radiant_crystals"`
+			Ebon_crystals           int `db:"ebon_crystals"`
+			Career_radiant_crystals int `db:"career_radiant_crystals"`
+			Career_ebon_crystals    int `db:"career_ebon_crystals"`
+		}
+		goldMod := 10
+		silverMod := 100
+		copperMod := 1000
+
+		for {
+			totalCurrency := &currencyRecord{}
+			rows, err := db.Queryx(currencyQuery)
+			if err != nil {
+				log.Println("Error currencyQuery:", err.Error)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+
+			for rows.Next() {
+
+				currency := &currencyRecord{}
+				err = rows.StructScan(&currency)
+				if err != nil {
+					log.Println("Error currencyQuery scan:", err)
+					time.Sleep(60 * time.Second)
+					continue
+				}
+				totalCurrency.Sharedplat += currency.Sharedplat
+				totalCurrency.Gold += currency.Gold
+				totalCurrency.Silver += currency.Silver
+				totalCurrency.Copper += currency.Copper
+				totalCurrency.Platinum_bank += currency.Platinum_bank
+				totalCurrency.Gold_bank += currency.Gold_bank
+				totalCurrency.Silver_bank += currency.Silver_bank
+				totalCurrency.Copper_bank += currency.Copper_bank
+				totalCurrency.Platinum_cursor += currency.Platinum_cursor
+				totalCurrency.Gold_cursor += currency.Gold_cursor
+				totalCurrency.Silver_cursor += currency.Silver_cursor
+				totalCurrency.Copper_cursor += currency.Copper_cursor
+				totalCurrency.Radiant_crystals += currency.Radiant_crystals
+				totalCurrency.Ebon_crystals += currency.Ebon_crystals
+			}
+			totalPlatinum := float64(0)
+			totalPlatinum += float64(totalCurrency.Sharedplat)
+			totalPlatinum += float64(totalCurrency.Gold / goldMod)
+			totalPlatinum += float64(totalCurrency.Silver / silverMod)
+			totalPlatinum += float64(totalCurrency.Copper / copperMod)
+			totalPlatinum += float64(totalCurrency.Platinum_bank)
+			totalPlatinum += float64(totalCurrency.Gold_bank / goldMod)
+			totalPlatinum += float64(totalCurrency.Silver_bank / silverMod)
+			totalPlatinum += float64(totalCurrency.Copper_bank / copperMod)
+			totalPlatinum += float64(totalCurrency.Platinum_cursor)
+			totalPlatinum += float64(totalCurrency.Gold_cursor / goldMod)
+			totalPlatinum += float64(totalCurrency.Silver_cursor / silverMod)
+			totalPlatinum += float64(totalCurrency.Copper_cursor / copperMod)
+			//log.Println(totalPlatinum)
+			currencyCount.WithLabelValues("normal").Observe(float64(totalPlatinum))
+			ebonCount.WithLabelValues("normal").Observe(float64(totalCurrency.Ebon_crystals))
+			radiantCount.WithLabelValues("normal").Observe(float64(totalCurrency.Radiant_crystals))
 			time.Sleep(60 * time.Second)
 		}
 	}()
