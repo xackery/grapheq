@@ -64,6 +64,15 @@ var (
 		},
 		[]string{"service"},
 	)
+
+	expCount = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "exp_count_minutes",
+			Help:       "Experience Count, every 60 seconds.",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"service"},
+	)
 )
 
 func init() {
@@ -72,6 +81,7 @@ func init() {
 	prometheus.MustRegister(currencyCount)
 	prometheus.MustRegister(radiantCount)
 	prometheus.MustRegister(ebonCount)
+	prometheus.MustRegister(expCount)
 }
 
 func main() {
@@ -121,6 +131,30 @@ func main() {
 				}
 			}
 			onlineCount.WithLabelValues("normal").Observe(count)
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	// EXPERIENCE
+	go func() {
+		expQuery := "select sum(exp)+sum(cc.exp_pool) from character_data cd INNER JOIN character_custom cc ON cc.character_id = cd.id;"
+		expTotal := float64(0)
+		for {
+			rows, err := db.Queryx(expQuery)
+			if err != nil {
+				log.Println("Error expQuery:", err.Error)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+			for rows.Next() {
+				err = rows.Scan(&expTotal)
+				if err != nil {
+					log.Println("Error expQueryScan:", err.Error)
+					time.Sleep(60 * time.Second)
+					continue
+				}
+			}
+			expCount.WithLabelValues("normal").Observe(expTotal)
 			time.Sleep(60 * time.Second)
 		}
 	}()
