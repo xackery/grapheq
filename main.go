@@ -189,7 +189,7 @@ func main() {
 		var count sql.NullFloat64
 		for {
 			for _, card := range cards {
-				err = db.QueryRow(`select SUM(itemid) from inventory 
+				err = db.QueryRow(`select count(itemid) from inventory 
 					where inventory.itemid = ? or inventory.augslot1 = ?`, card.id, card.id).Scan(&count)
 				if err != nil {
 					log.Println("Error exec card:", err)
