@@ -189,7 +189,10 @@ func main() {
 		var count sql.NullFloat64
 		for {
 			for _, card := range cards {
-				err = db.QueryRow("select SUM(charges) count from inventory where itemid = ?", card.id).Scan(&count)
+				err = db.QueryRow(`select SUM(inventory.charges) + sum(sharedbank.charges) 
+					from inventory INNER JOIN sharedbank ON sharedbank.itemid = inventory.itemid 
+					where inventory.itemid = ? or inventory.augslot1 = ?
+					or sharedbank.augslot1 = ?`, card.id, card.id, card.id).Scan(&count)
 				if err != nil {
 					log.Println("Error exec card:", err)
 					break
