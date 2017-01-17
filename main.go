@@ -4,7 +4,7 @@
 package main
 
 import (
-	//"database/sql"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -26,6 +26,13 @@ var (
 	normMean          = flag.Float64("normal.mean", 0.00001, "The mean for the normal distribution.")
 	oscillationPeriod = flag.Duration("oscillation-period", 10*time.Minute, "The duration of the rate oscillation period.")
 )
+
+//build card trackers
+type cardTracker struct {
+	gauge *prometheus.GaugeVec
+	name  string
+	id    int
+}
 
 var (
 	// Create a summary to track players online.
@@ -73,9 +80,75 @@ var (
 		},
 		[]string{"service"},
 	)
+
+	cards []cardTracker
 )
 
 func init() {
+
+	cardMap := map[string]int{
+		"dragon":       100100,
+		"insect":       100101,
+		"animal":       100102,
+		"construct":    100103,
+		"extra_planar": 100104,
+		"giant":        100105,
+		"humanoid":     100106,
+		"lycanthrope":  100107,
+		"magical":      100108,
+		"monster":      100109,
+		"plant":        100110,
+		"summoned":     100111,
+		"undead":       100112,
+		"gnoll":        100113,
+		"aviak":        100114,
+		"werewolf":     100115,
+		"kobold":       100116,
+		"orc":          100117,
+		"fungus":       100118,
+		"goblin":       100119,
+		"evil_eye":     100120,
+		"human":        100121,
+		"barbarian":    100122,
+		"erudite":      100123,
+		"wood_elf":     100124,
+		"high_elf":     100125,
+		"dark_elf":     100126,
+		"half_elf":     100127,
+		"dwarf":        100128,
+		"troll":        100129,
+		"ogre":         100130,
+		"halfling":     100131,
+		"gnome":        100132,
+		"froglok":      100133,
+		"shadowed_man": 100134,
+		"spider":       100135,
+		"beetle":       100136,
+		"snake":        100137,
+		"wolf":         100138,
+		"bear":         100139,
+		"ghoul":        100140,
+		"zombie":       100141,
+		"skeleton":     100142,
+		"chromadrac":   100143,
+	}
+
+	for name, value := range cardMap {
+		card := cardTracker{
+			id:   value,
+			name: name,
+			gauge: prometheus.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Name: fmt.Sprintf("card_%s_count", name),
+					Help: fmt.Sprintf("Total number of %s on server.", name),
+				},
+				[]string{"service"},
+			),
+		}
+		cards = append(cards, card)
+		prometheus.MustRegister(card.gauge)
+	}
+
 	// Register the with Prometheus's default registry.
 	prometheus.MustRegister(onlineCount)
 	prometheus.MustRegister(currencyCount)
@@ -110,6 +183,23 @@ func main() {
 	flag.Parse()
 
 	//start := time.Now()
+
+	// CARD
+	go func() {
+		var count sql.NullFloat64
+		for {
+			for _, card := range cards {
+				err = db.QueryRow("select SUM(charges) count from inventory where itemid = ?", card.id).Scan(&count)
+				if err != nil {
+					log.Println("Error exec card:", err)
+					break
+				}
+				card.gauge.WithLabelValues("count").Set(count.Float64)
+			}
+			time.Sleep(60 * time.Second)
+		}
+
+	}()
 
 	// ONLINE
 	go func() {
