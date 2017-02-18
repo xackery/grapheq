@@ -1,4 +1,10 @@
 #No Databases should be versioned
+bin/
+vendor/*/
+coverage*.out
+*.prof
+cover.out
+
 *.db
 eqemu_config.xml
 

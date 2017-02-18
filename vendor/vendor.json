@@ -1,0 +1,37 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "AzOt34C4RJ42Vak7A+iME7luE6c=",
+			"path": "github.com/go-sql-driver/mysql",
+			"revision": "1421caf44f6464fd2ee8de694c7508ee13f92964",
+			"revisionTime": "2016-03-29T09:03:53Z"
+		},
+		{
+			"checksumSHA1": "K33xdaNbpTxlDZbenJzT9PzTyvM=",
+			"path": "github.com/jmoiron/sqlx",
+			"revision": "398dd5876282499cdfd4cb8ea0f31a672abe9495",
+			"revisionTime": "2016-02-06T22:15:33Z"
+		},
+		{
+			"checksumSHA1": "/j0HRFJPThv7HEkZZ/gurf+5fQI=",
+			"path": "github.com/prometheus/client_golang/prometheus",
+			"revision": "74f9ce27f652f73cbb519ce5500f8e12d08dcbd3",
+			"revisionTime": "2017-01-08T23:28:57Z"
+		},
+		{
+			"checksumSHA1": "lG3//eDlwqA4IOuAPrNtLh9G0TA=",
+			"path": "github.com/prometheus/client_golang/prometheus/promhttp",
+			"revision": "74f9ce27f652f73cbb519ce5500f8e12d08dcbd3",
+			"revisionTime": "2017-01-08T23:28:57Z"
+		},
+		{
+			"checksumSHA1": "0LPpWq6cGvZii9pVp+eQwxONgDc=",
+			"path": "github.com/xackery/eqemuconfig",
+			"revision": "a0390ad674f0f7cfa464652350c895481def4b7a",
+			"revisionTime": "2016-11-10T17:56:15Z"
+		}
+	],
+	"rootPath": "github.com/xackery/grapheq"
+}
