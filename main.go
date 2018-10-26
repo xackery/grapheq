@@ -1,12 +1,10 @@
-// A simple example exposing fictional RPC latencies with different types of
-// random distributions (uniform, normal, and exponential) as Prometheus
-// metrics.
 package main
 
 import (
-	"database/sql"
+	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -14,155 +12,101 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/pkg/errors"
 	"github.com/xackery/eqemuconfig"
+	"gopkg.in/yaml.v2"
 )
 
 var (
-	addr              = flag.String("listen-address", ":8081", "The address to listen on for HTTP requests.")
-	uniformDomain     = flag.Float64("uniform.domain", 0.0002, "The domain for the uniform distribution.")
-	normDomain        = flag.Float64("normal.domain", 0.0002, "The domain for the normal distribution.")
-	normMean          = flag.Float64("normal.mean", 0.00001, "The mean for the normal distribution.")
-	oscillationPeriod = flag.Duration("oscillation-period", 10*time.Minute, "The duration of the rate oscillation period.")
+	addr    = flag.String("listen-address", ":8081", "The address to listen on for HTTP requests.")
+	iconfig *Config
 )
+
+// Config is the configuration of the grapheq
+type Config struct {
+	RetryDelay int
+	Influx     *Influx
+}
+
+// Influx represents an influxdb endpoint
+type Influx struct {
+	URL      string
+	Database string
+	User     string
+	Password string
+}
 
 //build card trackers
 type cardTracker struct {
-	gauge *prometheus.GaugeVec
 	name  string
 	id    int
+	count int
 }
 
 var (
-	// Create a summary to track players online.
-	onlineCount = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "online_count_minutes",
-			Help:       "Online Count, every 60 seconds.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-
-	currencyCount = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "currency_count_minutes",
-			Help:       "Currency Count, every 60 seconds.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-
-	radiantCount = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "radiant_count_minutes",
-			Help:       "Radiant Crystal Count, every 60 seconds.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-
-	ebonCount = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "ebon_count_minutes",
-			Help:       "Ebon Crystal Count, every 60 seconds.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-
-	expCount = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "exp_count_minutes",
-			Help:       "Experience Count, every 60 seconds.",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"service"},
-	)
-
-	cards []cardTracker
+	cards   []cardTracker
+	cardMap = map[string]int{
+		"dragon":      100100,
+		"insect":      100101,
+		"animal":      100102,
+		"construct":   100103,
+		"extraPlanar": 100104,
+		"giant":       100105,
+		"humanoid":    100106,
+		"lycanthrope": 100107,
+		"magical":     100108,
+		"monster":     100109,
+		"plant":       100110,
+		"summoned":    100111,
+		"undead":      100112,
+		"gnoll":       100113,
+		"aviak":       100114,
+		"werewolf":    100115,
+		"kobold":      100116,
+		"orc":         100117,
+		"fungus":      100118,
+		"goblin":      100119,
+		"evilEye":     100120,
+		"human":       100121,
+		"barbarian":   100122,
+		"erudite":     100123,
+		"woodElf":     100124,
+		"highElf":     100125,
+		"darkElf":     100126,
+		"halfElf":     100127,
+		"dwarf":       100128,
+		"troll":       100129,
+		"ogre":        100130,
+		"halfling":    100131,
+		"gnome":       100132,
+		"froglok":     100133,
+		"shadowedMan": 100134,
+		"spider":      100135,
+		"beetle":      100136,
+		"snake":       100137,
+		"wolf":        100138,
+		"bear":        100139,
+		"ghoul":       100140,
+		"zombie":      100141,
+		"skeleton":    100142,
+		"chromadrac":  100143,
+	}
 )
 
-func init() {
-
-	cardMap := map[string]int{
-		"dragon":       100100,
-		"insect":       100101,
-		"animal":       100102,
-		"construct":    100103,
-		"extra_planar": 100104,
-		"giant":        100105,
-		"humanoid":     100106,
-		"lycanthrope":  100107,
-		"magical":      100108,
-		"monster":      100109,
-		"plant":        100110,
-		"summoned":     100111,
-		"undead":       100112,
-		"gnoll":        100113,
-		"aviak":        100114,
-		"werewolf":     100115,
-		"kobold":       100116,
-		"orc":          100117,
-		"fungus":       100118,
-		"goblin":       100119,
-		"evil_eye":     100120,
-		"human":        100121,
-		"barbarian":    100122,
-		"erudite":      100123,
-		"wood_elf":     100124,
-		"high_elf":     100125,
-		"dark_elf":     100126,
-		"half_elf":     100127,
-		"dwarf":        100128,
-		"troll":        100129,
-		"ogre":         100130,
-		"halfling":     100131,
-		"gnome":        100132,
-		"froglok":      100133,
-		"shadowed_man": 100134,
-		"spider":       100135,
-		"beetle":       100136,
-		"snake":        100137,
-		"wolf":         100138,
-		"bear":         100139,
-		"ghoul":        100140,
-		"zombie":       100141,
-		"skeleton":     100142,
-		"chromadrac":   100143,
-	}
-
-	for name, value := range cardMap {
-		card := cardTracker{
-			id:   value,
-			name: name,
-			gauge: prometheus.NewGaugeVec(
-				prometheus.GaugeOpts{
-					Name: fmt.Sprintf("card_%s_count", name),
-					Help: fmt.Sprintf("Total number of %s on server.", name),
-				},
-				[]string{"service"},
-			),
-		}
-		cards = append(cards, card)
-		prometheus.MustRegister(card.gauge)
-	}
-
-	// Register the with Prometheus's default registry.
-	prometheus.MustRegister(onlineCount)
-	prometheus.MustRegister(currencyCount)
-	prometheus.MustRegister(radiantCount)
-	prometheus.MustRegister(ebonCount)
-	prometheus.MustRegister(expCount)
-}
-
 func main() {
+	iconfig = &Config{}
+	f, err := os.Open("config.yml")
+	d := yaml.NewDecoder(f)
+	err = d.Decode(iconfig)
+	if err != nil {
+		log.Println("failed to open influx config", err.Error())
+		os.Exit(1)
+	}
 
 	option := ""
 	config, err := eqemuconfig.GetConfig()
 	if err != nil {
-		log.Println("Error while loading eqemu_config.xml to start:", err.Error())
+		log.Println("Error while loading eqemuConfig.xml to start:", err.Error())
 		fmt.Println("press a key then enter to exit.")
 
 		fmt.Scan(&option)
@@ -186,26 +130,33 @@ func main() {
 
 	// CARD
 	go func() {
-		var count sql.NullFloat64
+		var count int64
 		for {
-			for _, card := range cards {
+			metrics := make(map[string]interface{})
+
+			for name, card := range cardMap {
 				err = db.QueryRow(`select count(itemid) from inventory 
-					where inventory.itemid = ? or inventory.augslot1 = ?`, card.id, card.id).Scan(&count)
+					where inventory.itemid = ? or inventory.augslot1 = ?`, card, card).Scan(&count)
 				if err != nil {
 					log.Println("Error exec card:", err)
 					break
 				}
-				card.gauge.WithLabelValues("count").Set(count.Float64)
+				metrics[name] = count
+			}
+			err = sendMetrics("card", "card", metrics)
+			if err != nil {
+				fmt.Println("failed to send card metrics", err.Error())
 			}
 			time.Sleep(60 * time.Second)
 		}
 
 	}()
 
-	// ONLINE
+	// ONLINE onlineCountMinutes
 	go func() {
 		onlineQuery := "select count(last_login) from character_data where last_login >= UNIX_TIMESTAMP(now()-600) LIMIT 1"
-		count := float64(0)
+		count := int64(0)
+		metrics := make(map[string]interface{})
 		for {
 			rows, err := db.Queryx(onlineQuery)
 			if err != nil {
@@ -221,15 +172,20 @@ func main() {
 					continue
 				}
 			}
-			onlineCount.WithLabelValues("normal").Observe(count)
+			metrics["online"] = count
+			err = sendMetrics("online", "count", metrics)
+			if err != nil {
+				fmt.Println("failed to send card metrics", err.Error())
+			}
 			time.Sleep(60 * time.Second)
 		}
 	}()
 
-	// EXPERIENCE
+	// EXPERIENCE //expCountMinutes
 	go func() {
 		expQuery := "select sum(exp)+sum(cc.exp_pool) from character_data cd INNER JOIN character_custom cc ON cc.character_id = cd.id;"
-		expTotal := float64(0)
+		count := int64(0)
+		metrics := make(map[string]interface{})
 		for {
 			rows, err := db.Queryx(expQuery)
 			if err != nil {
@@ -238,48 +194,53 @@ func main() {
 				continue
 			}
 			for rows.Next() {
-				err = rows.Scan(&expTotal)
+				err = rows.Scan(&count)
 				if err != nil {
 					log.Println("Error expQueryScan:", err)
 					time.Sleep(60 * time.Second)
 					continue
 				}
 			}
-			expCount.WithLabelValues("normal").Observe(expTotal)
+			metrics["exp_total"] = count
+			err = sendMetrics("online", "count", metrics)
+			if err != nil {
+				fmt.Println("failed to send card metrics", err.Error())
+			}
+			//expCount.WithLabelValues("normal").Observe(expTotal)
 			time.Sleep(60 * time.Second)
 		}
 	}()
 
-	// CURRENCY
+	// CURRENCY //currencyCountMinutes radiantCountMinutes ebonCountMinutes
 	go func() {
 		currencyQuery := `SELECT a.sharedplat, cc.* FROM character_data cd 
 INNER JOIN account a ON a.id = cd.account_id  
 INNER JOIN character_currency cc ON cc.id = cd.id
 WHERE a.status < 150 `
 		type currencyRecord struct {
-			Id                      int `db:"id"`
-			Sharedplat              int `db:"sharedplat"`
-			Platinum                int `db:"platinum"`
-			Gold                    int `db:"gold"`
-			Silver                  int `db:"silver"`
-			Copper                  int `db:"copper"`
-			Platinum_bank           int `db:"platinum_bank"`
-			Gold_bank               int `db:"gold_bank"`
-			Silver_bank             int `db:"silver_bank"`
-			Copper_bank             int `db:"copper_bank"`
-			Platinum_cursor         int `db:"platinum_cursor"`
-			Gold_cursor             int `db:"gold_cursor"`
-			Silver_cursor           int `db:"silver_cursor"`
-			Copper_cursor           int `db:"copper_cursor"`
-			Radiant_crystals        int `db:"radiant_crystals"`
-			Ebon_crystals           int `db:"ebon_crystals"`
-			Career_radiant_crystals int `db:"career_radiant_crystals"`
-			Career_ebon_crystals    int `db:"career_ebon_crystals"`
+			ID                    int `db:"id"`
+			Sharedplat            int `db:"sharedplat"`
+			Platinum              int `db:"platinum"`
+			Gold                  int `db:"gold"`
+			Silver                int `db:"silver"`
+			Copper                int `db:"copper"`
+			PlatinumBank          int `db:"platinum_bank"`
+			GoldBank              int `db:"gold_bank"`
+			SilverBank            int `db:"silver_bank"`
+			CopperBank            int `db:"copper_bank"`
+			PlatinumCursor        int `db:"platinum_cursor"`
+			GoldCursor            int `db:"gold_cursor"`
+			SilverCursor          int `db:"silver_cursor"`
+			CopperCursor          int `db:"copper_cursor"`
+			RadiantCrystals       int `db:"radiant_crystals"`
+			EbonCrystals          int `db:"ebon_crystals"`
+			CareerRadiantCrystals int `db:"career_radiant_crystals"`
+			CareerEbonCrystals    int `db:"career_ebon_crystals"`
 		}
 		goldMod := 10
 		silverMod := 100
 		copperMod := 1000
-
+		metrics := make(map[string]interface{})
 		for {
 			totalCurrency := &currencyRecord{}
 			rows, err := db.Queryx(currencyQuery)
@@ -302,39 +263,84 @@ WHERE a.status < 150 `
 				totalCurrency.Gold += currency.Gold
 				totalCurrency.Silver += currency.Silver
 				totalCurrency.Copper += currency.Copper
-				totalCurrency.Platinum_bank += currency.Platinum_bank
-				totalCurrency.Gold_bank += currency.Gold_bank
-				totalCurrency.Silver_bank += currency.Silver_bank
-				totalCurrency.Copper_bank += currency.Copper_bank
-				totalCurrency.Platinum_cursor += currency.Platinum_cursor
-				totalCurrency.Gold_cursor += currency.Gold_cursor
-				totalCurrency.Silver_cursor += currency.Silver_cursor
-				totalCurrency.Copper_cursor += currency.Copper_cursor
-				totalCurrency.Radiant_crystals += currency.Radiant_crystals
-				totalCurrency.Ebon_crystals += currency.Ebon_crystals
+				totalCurrency.PlatinumBank += currency.PlatinumBank
+				totalCurrency.GoldBank += currency.GoldBank
+				totalCurrency.SilverBank += currency.SilverBank
+				totalCurrency.CopperBank += currency.CopperBank
+				totalCurrency.PlatinumCursor += currency.PlatinumCursor
+				totalCurrency.GoldCursor += currency.GoldCursor
+				totalCurrency.SilverCursor += currency.SilverCursor
+				totalCurrency.CopperCursor += currency.CopperCursor
+				totalCurrency.RadiantCrystals += currency.RadiantCrystals
+				totalCurrency.EbonCrystals += currency.EbonCrystals
 			}
 			totalPlatinum := float64(0)
 			totalPlatinum += float64(totalCurrency.Sharedplat)
 			totalPlatinum += float64(totalCurrency.Gold / goldMod)
 			totalPlatinum += float64(totalCurrency.Silver / silverMod)
 			totalPlatinum += float64(totalCurrency.Copper / copperMod)
-			totalPlatinum += float64(totalCurrency.Platinum_bank)
-			totalPlatinum += float64(totalCurrency.Gold_bank / goldMod)
-			totalPlatinum += float64(totalCurrency.Silver_bank / silverMod)
-			totalPlatinum += float64(totalCurrency.Copper_bank / copperMod)
-			totalPlatinum += float64(totalCurrency.Platinum_cursor)
-			totalPlatinum += float64(totalCurrency.Gold_cursor / goldMod)
-			totalPlatinum += float64(totalCurrency.Silver_cursor / silverMod)
-			totalPlatinum += float64(totalCurrency.Copper_cursor / copperMod)
+			totalPlatinum += float64(totalCurrency.PlatinumBank)
+			totalPlatinum += float64(totalCurrency.GoldBank / goldMod)
+			totalPlatinum += float64(totalCurrency.SilverBank / silverMod)
+			totalPlatinum += float64(totalCurrency.CopperBank / copperMod)
+			totalPlatinum += float64(totalCurrency.PlatinumCursor)
+			totalPlatinum += float64(totalCurrency.GoldCursor / goldMod)
+			totalPlatinum += float64(totalCurrency.SilverCursor / silverMod)
+			totalPlatinum += float64(totalCurrency.CopperCursor / copperMod)
+
+			metrics["platinum"] = int64(totalPlatinum)
+			metrics["ebon"] = int64(totalCurrency.EbonCrystals)
+			metrics["radiant"] = int64(totalCurrency.RadiantCrystals)
+			err = sendMetrics("currency", "total", metrics)
+			if err != nil {
+				fmt.Println("failed to send card metrics", err.Error())
+			}
 			//log.Println(totalPlatinum)
-			currencyCount.WithLabelValues("normal").Observe(float64(totalPlatinum))
-			ebonCount.WithLabelValues("normal").Observe(float64(totalCurrency.Ebon_crystals))
-			radiantCount.WithLabelValues("normal").Observe(float64(totalCurrency.Radiant_crystals))
+			//currencyCount.WithLabelValues("normal").Observe(float64(totalPlatinum))
+			//ebonCount.WithLabelValues("normal").Observe(float64(totalCurrency.EbonCrystals))
+			//radiantCount.WithLabelValues("normal").Observe(float64(totalCurrency.RadiantCrystals))
 			time.Sleep(60 * time.Second)
 		}
 	}()
 
 	// Expose the registered metrics via HTTP.
-	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(*addr, nil))
+}
+
+func sendMetrics(series string, name string, entries map[string]interface{}) (err error) {
+	var resp *http.Response
+	var data []byte
+
+	msg := fmt.Sprintf("%s,name=\"%s\" ", series, name)
+	for k, v := range entries {
+		switch val := v.(type) {
+		case int64:
+			msg += fmt.Sprintf("%s=%d,", k, val)
+		case string:
+			msg += fmt.Sprintf("%s=\"%s\",", k, val)
+		default:
+			err = errors.Wrapf(err, "invalid type passed for %s", k)
+			return
+		}
+	}
+	msg = fmt.Sprintf("%s %d", msg[0:len(msg)-1], time.Now().Unix())
+
+	creds := ""
+	if iconfig.Influx.User != "" {
+		creds = fmt.Sprintf("&u=%s&p=%s", iconfig.Influx.User, iconfig.Influx.Password)
+	}
+
+	buf := bytes.NewBufferString(msg)
+	resp, err = http.Post(fmt.Sprintf("%s/write?db=%s%s&precision=s", iconfig.Influx.URL, iconfig.Influx.Database, creds), "binary", buf)
+	if err != nil {
+		err = errors.Wrap(err, "failed to post metrics")
+		return
+	}
+	fmt.Println(msg)
+	if resp.StatusCode != 204 {
+		data, err = ioutil.ReadAll(resp.Body)
+		fmt.Println("response from influx not 204:", resp.Status, string(data))
+		return
+	}
+	return
 }

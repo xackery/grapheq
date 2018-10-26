@@ -1,0 +1,13 @@
+# github.com/go-sql-driver/mysql v1.4.0
+github.com/go-sql-driver/mysql
+# github.com/jmoiron/sqlx v1.2.0
+github.com/jmoiron/sqlx
+github.com/jmoiron/sqlx/reflectx
+# github.com/pkg/errors v0.8.0
+github.com/pkg/errors
+# github.com/xackery/eqemuconfig v0.0.0-20180212085402-a597d5563ecc
+github.com/xackery/eqemuconfig
+# google.golang.org/appengine v1.2.0
+google.golang.org/appengine/cloudsql
+# gopkg.in/yaml.v2 v2.2.1
+gopkg.in/yaml.v2

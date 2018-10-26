@@ -1,0 +1,4 @@
+retrydelay: 60
+influx:
+  url: http://localhost:8086
+  database: telegraf_metrics  

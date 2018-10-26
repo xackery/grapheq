@@ -1,8 +1,8 @@
 # A Self-Documenting Makefile: http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 
 SHORTNAME = grapheq
-PACKAGE = github.com/xackery/{$SHORTNAME}
-DOTPATH = github.com.xackery.{$SHORTNAME}
+PACKAGE = github.com/xackery/grapheq
+DOTPATH = github.com.xackery.grapheq
 
 COMMIT_HASH = `git rev-parse --short HEAD 2>/dev/null`
 BUILD_DATE = `date +%FT%T%z`
